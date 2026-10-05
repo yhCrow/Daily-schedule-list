@@ -2,6 +2,9 @@
 
 Copy everything below the line into Claude Code (or any coding assistant) to build the project.
 
+> **Note:** the finished site was simplified to store data in the browser only (no Supabase, no
+> login). Privacy comes from the data never leaving your device. See `README.md`.
+
 ---
 
 ## Goal

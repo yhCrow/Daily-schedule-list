@@ -10,7 +10,7 @@ import type { LearningItem, Revision } from '../lib/types'
 type Filter = 'all' | 'active' | 'finished'
 
 export function LearnPage() {
-  const { items, revisions, loading } = useData()
+  const { items, revisions } = useData()
   const [query, setQuery] = useState('')
   const [subject, setSubject] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
@@ -34,8 +34,6 @@ export function LearnPage() {
       return filter === 'finished' ? finished : !finished
     })
     .sort((a, b) => b.learned_on.localeCompare(a.learned_on) || b.created_at.localeCompare(a.created_at))
-
-  if (loading) return <p className="text-slate-400">Loading…</p>
 
   return (
     <div className="space-y-4">

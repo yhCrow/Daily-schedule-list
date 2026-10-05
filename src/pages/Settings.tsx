@@ -1,35 +1,22 @@
 import { useRef, useState } from 'react'
 import { useToast } from '../components/Toast'
-import { useAuth } from '../hooks/useAuth'
 import { useData } from '../hooks/useData'
 import { useToday } from '../hooks/useToday'
-import { isDemo } from '../lib/backend'
+import { downloadBackup } from '../lib/backup'
+import { formatDay, timestampToISODate } from '../lib/dates'
 import { LONG_TERM_OFFSET, REVISION_OFFSETS } from '../lib/schedule'
-import type { Snapshot } from '../lib/types'
-
-function isSnapshot(x: unknown): x is Snapshot {
-  const s = x as Snapshot
-  return Boolean(s && Array.isArray(s.items) && Array.isArray(s.revisions) && Array.isArray(s.todos))
-}
+import { getLastBackup, isSnapshot } from '../lib/storage'
 
 export function SettingsPage() {
   const data = useData()
-  const { email, signOut } = useAuth()
   const toast = useToast()
   const today = useToday()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [importing, setImporting] = useState(false)
+  const [lastBackup, setLastBackupState] = useState(getLastBackup)
 
   function exportJson() {
-    const snapshot: Snapshot = { items: data.items, revisions: data.revisions, todos: data.todos, settings: data.settings }
-    const blob = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), ...snapshot }, null, 2)], {
-      type: 'application/json',
-    })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `study-planner-backup-${today}.json`
-    a.click()
-    URL.revokeObjectURL(a.href)
+    downloadBackup({ items: data.items, revisions: data.revisions, todos: data.todos, settings: data.settings }, today)
+    setLastBackupState(getLastBackup())
   }
 
   async function importJson(file: File) {
@@ -39,13 +26,11 @@ export function SettingsPage() {
       const n = parsed.items.length + parsed.revisions.length + parsed.todos.length
       if (!confirm(`Import ${parsed.items.length} items, ${parsed.revisions.length} revisions and ${parsed.todos.length} to-dos? Rows with the same id are overwritten.`))
         return
-      setImporting(true)
-      await data.importSnapshot(parsed)
+      data.importSnapshot(parsed)
       toast(`Imported ${n} rows`)
     } catch (e) {
       toast(`Import failed: ${(e as Error).message}`, { error: true })
     } finally {
-      setImporting(false)
       if (fileRef.current) fileRef.current.value = ''
     }
   }
@@ -79,13 +64,21 @@ export function SettingsPage() {
       </section>
 
       <section className="card space-y-3">
-        <h2 className="card-title">Backup</h2>
-        <div className="flex flex-wrap gap-2">
+        <h2 className="card-title">Your data &amp; backup</h2>
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Everything is saved <strong>only in this browser</strong> on this device. Nothing is uploaded, so nobody else
+          can see or change your planner. Anyone else who opens this site gets their own empty one.
+        </p>
+        <ul className="list-disc space-y-1 pl-5 text-xs text-slate-500">
+          <li>Clearing your browser's site data, or using a private window, wipes or hides it. Download a backup regularly.</li>
+          <li>To move to another device or browser: download a backup here, then import it there.</li>
+        </ul>
+        <div className="flex flex-wrap items-center gap-2">
           <button className="btn-primary" onClick={exportJson}>
-            ⬇ Export JSON
+            ⬇ Download backup
           </button>
-          <button className="btn-ghost border border-slate-300 dark:border-slate-700" disabled={importing} onClick={() => fileRef.current?.click()}>
-            {importing ? 'Importing…' : '⬆ Import JSON'}
+          <button className="btn-ghost border border-slate-300 dark:border-slate-700" onClick={() => fileRef.current?.click()}>
+            ⬆ Import backup
           </button>
           <input
             ref={fileRef}
@@ -94,24 +87,10 @@ export function SettingsPage() {
             className="hidden"
             onChange={(e) => e.target.files?.[0] && importJson(e.target.files[0])}
           />
+          <span className="text-xs text-slate-500">
+            Last backup: {lastBackup ? formatDay(timestampToISODate(lastBackup), 'd MMM yyyy') : 'never'}
+          </span>
         </div>
-      </section>
-
-      <section className="card space-y-2">
-        <h2 className="card-title">Account</h2>
-        <p className="text-sm">
-          Signed in as <strong>{email}</strong>
-        </p>
-        <p className="text-xs text-slate-500">
-          {isDemo
-            ? 'Demo mode has no login. Deploy with Supabase to lock the planner to your account.'
-            : 'Only this account can view or change the planner. This is enforced by the database, not just the website.'}
-        </p>
-        {!isDemo && (
-          <button className="btn-ghost border border-slate-300 dark:border-slate-700" onClick={signOut}>
-            Sign out
-          </button>
-        )}
       </section>
 
       <section className="card text-sm text-slate-500">

@@ -1,6 +1,5 @@
-// Minimal offline support: caches the app shell so the planner opens without a
-// connection. Data requests (Supabase) are never cached here; the app keeps its
-// own copy of your last loaded data for offline viewing.
+// Offline support: caches the app files so the planner opens without a
+// connection. Your data is in localStorage, so it is always available offline.
 const CACHE = 'study-planner-v1'
 
 self.addEventListener('install', (event) => {

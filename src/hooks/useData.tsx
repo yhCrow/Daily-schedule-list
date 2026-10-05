@@ -1,11 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useToast } from '../components/Toast'
-import { backend, DEFAULT_SETTINGS, isDemo } from '../lib/backend'
 import { buildSchedule, completeRevision, getOffsets, recalcForLearnedDate } from '../lib/schedule'
+import { loadSnapshot, mergeSnapshot, saveSnapshot, STORAGE_KEY } from '../lib/storage'
 import type { ISODate, LearningItem, Revision, Settings, Snapshot, Todo } from '../lib/types'
-
-const CACHE_KEY = 'study-planner-cache'
-const EMPTY: Snapshot = { items: [], revisions: [], todos: [], settings: DEFAULT_SETTINGS }
 
 export interface NewItem {
   title: string
@@ -15,8 +12,6 @@ export interface NewItem {
 }
 
 interface DataState extends Snapshot {
-  loading: boolean
-  offline: boolean
   addItem(input: NewItem): void
   updateItem(item: LearningItem): void
   deleteItem(id: string): void
@@ -29,28 +24,10 @@ interface DataState extends Snapshot {
   reorderTodos(ordered: Todo[]): void
   moveTodos(todos: Todo[], dueOn: ISODate): void
   saveSettings(settings: Settings): void
-  importSnapshot(snapshot: Snapshot): Promise<void>
+  importSnapshot(snapshot: Snapshot): void
 }
 
 const DataContext = createContext<DataState | null>(null)
-
-function readCache(): Snapshot | null {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY)
-    return raw ? (JSON.parse(raw) as Snapshot) : null
-  } catch {
-    return null
-  }
-}
-
-function writeCache(s: Snapshot) {
-  if (isDemo) return
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(s))
-  } catch {
-    /* storage full or blocked: the cache is only a convenience */
-  }
-}
 
 const upsert = <T extends { id: string }>(list: T[], rows: T[]): T[] => {
   const byId = new Map(rows.map((r) => [r.id, r]))
@@ -61,72 +38,46 @@ const upsert = <T extends { id: string }>(list: T[], rows: T[]): T[] => {
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const toast = useToast()
-  const [data, setData] = useState<Snapshot>(EMPTY)
-  const [loading, setLoading] = useState(true)
-  const [offline, setOffline] = useState(false)
+  const [data, setData] = useState<Snapshot>(loadSnapshot)
   const current = useRef(data)
   current.current = data
 
-  const reload = useCallback(async () => {
-    if (!backend) return
-    try {
-      const s = await backend.loadAll()
-      setData(s)
-      writeCache(s)
-      setOffline(false)
-    } catch (e) {
-      const cached = readCache()
-      if (cached) {
-        setData(cached)
-        setOffline(true)
-      } else {
-        toast(`Could not load your data: ${(e as Error).message}`, { error: true })
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [toast])
-
+  // Keep several open tabs in sync.
   useEffect(() => {
-    reload()
-    window.addEventListener('online', reload)
-    return () => window.removeEventListener('online', reload)
-  }, [reload])
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY) setData(loadSnapshot())
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
-  /** Optimistic update: apply locally now, save in the background, roll back on failure. */
-  const run = useCallback(
-    (next: Snapshot, save: () => Promise<void>) => {
-      const prev = current.current
+  /** Save to the browser, then show it. If the browser refuses, nothing changes. */
+  const commit = useCallback(
+    (next: Snapshot) => {
+      try {
+        saveSnapshot(next)
+      } catch (e) {
+        toast(`Not saved: your browser refused to store it (${(e as Error).message})`, { error: true })
+        return
+      }
       current.current = next
       setData(next)
-      save()
-        .then(() => writeCache(current.current))
-        .catch((e: Error) => {
-          current.current = prev
-          setData(prev)
-          toast(`Not saved: ${e.message}`, { error: true })
-        })
     },
     [toast],
   )
 
   const value = useMemo<DataState>(() => {
-    const be = backend!
     const s = () => current.current
 
     return {
       ...data,
-      loading,
-      offline,
 
       addItem(input) {
         const item: LearningItem = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...input }
         const revisions: Revision[] = buildSchedule(input.learned_on, getOffsets(s().settings.long_term_review)).map(
           (p) => ({ id: crypto.randomUUID(), item_id: item.id, round: p.round, due_on: p.due_on, done_at: null }),
         )
-        run({ ...s(), items: [item, ...s().items], revisions: [...s().revisions, ...revisions] }, () =>
-          be.addItem(item, revisions),
-        )
+        commit({ ...s(), items: [item, ...s().items], revisions: [...s().revisions, ...revisions] })
       },
 
       updateItem(item) {
@@ -138,37 +89,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
                 item.learned_on,
               )
             : []
-        run({ ...s(), items: upsert(s().items, [item]), revisions: upsert(s().revisions, moved) }, async () => {
-          await be.updateItem(item)
-          await be.upsertRevisions(moved)
-        })
+        commit({ ...s(), items: upsert(s().items, [item]), revisions: upsert(s().revisions, moved) })
       },
 
       deleteItem(id) {
-        run(
-          { ...s(), items: s().items.filter((i) => i.id !== id), revisions: s().revisions.filter((r) => r.item_id !== id) },
-          () => be.deleteItem(id),
-        )
+        commit({
+          ...s(),
+          items: s().items.filter((i) => i.id !== id),
+          revisions: s().revisions.filter((r) => r.item_id !== id),
+        })
       },
 
       toggleRevision(revision, today) {
         const itemRevs = s().revisions.filter((r) => r.item_id === revision.item_id)
         if (revision.done_at) {
-          const undone = { ...revision, done_at: null }
-          run({ ...s(), revisions: upsert(s().revisions, [undone]) }, () => be.upsertRevisions([undone]))
+          commit({ ...s(), revisions: upsert(s().revisions, [{ ...revision, done_at: null }]) })
           return
         }
         const changed = completeRevision(itemRevs, revision.id, new Date().toISOString(), today)
         const before = itemRevs.filter((r) => changed.some((c) => c.id === r.id))
-        run({ ...s(), revisions: upsert(s().revisions, changed) }, () => be.upsertRevisions(changed))
+        commit({ ...s(), revisions: upsert(s().revisions, changed) })
         const shifted = changed.length - 1
         toast(
           shifted > 0
             ? `Revision R${revision.round} done (${shifted} later revision${shifted > 1 ? 's' : ''} moved back)`
             : `Revision R${revision.round} done`,
-          {
-            undo: () => run({ ...s(), revisions: upsert(s().revisions, before) }, () => be.upsertRevisions(before)),
-          },
+          { undo: () => commit({ ...s(), revisions: upsert(s().revisions, before) }) },
         )
       },
 
@@ -181,16 +127,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
           due_on: p.due_on,
           done_at: null,
         }))
-        const swap = (from: Revision[], to: Revision[]) => ({
+        const swap = (to: Revision[]) => ({
           ...s(),
           revisions: s()
-            .revisions.filter((r) => !from.some((f) => f.id === r.id))
+            .revisions.filter((r) => r.item_id !== itemId)
             .concat(to),
         })
-        run(swap(before, fresh), () => be.restartItem(itemId, fresh))
-        toast('Schedule restarted from today', {
-          undo: () => run(swap(fresh, before), () => be.restartItem(itemId, before)),
-        })
+        commit(swap(fresh))
+        toast('Schedule restarted from today', { undo: () => commit(swap(before)) })
       },
 
       addTodo(title, dueOn) {
@@ -203,53 +147,46 @@ export function DataProvider({ children }: { children: ReactNode }) {
           position: sameDay.reduce((max, t) => Math.max(max, t.position + 1), 0),
           created_at: new Date().toISOString(),
         }
-        run({ ...s(), todos: [...s().todos, todo] }, () => be.upsertTodos([todo]))
+        commit({ ...s(), todos: [...s().todos, todo] })
       },
 
       updateTodo(todo) {
-        run({ ...s(), todos: upsert(s().todos, [todo]) }, () => be.upsertTodos([todo]))
+        commit({ ...s(), todos: upsert(s().todos, [todo]) })
       },
 
       toggleTodo(todo) {
         const next = { ...todo, done_at: todo.done_at ? null : new Date().toISOString() }
-        run({ ...s(), todos: upsert(s().todos, [next]) }, () => be.upsertTodos([next]))
+        commit({ ...s(), todos: upsert(s().todos, [next]) })
         if (next.done_at) {
-          toast('Task done', {
-            undo: () => run({ ...s(), todos: upsert(s().todos, [todo]) }, () => be.upsertTodos([todo])),
-          })
+          toast('Task done', { undo: () => commit({ ...s(), todos: upsert(s().todos, [todo]) }) })
         }
       },
 
       deleteTodo(todo) {
-        run({ ...s(), todos: s().todos.filter((t) => t.id !== todo.id) }, () => be.deleteTodo(todo.id))
-        toast('Task deleted', {
-          undo: () => run({ ...s(), todos: [...s().todos, todo] }, () => be.upsertTodos([todo])),
-        })
+        commit({ ...s(), todos: s().todos.filter((t) => t.id !== todo.id) })
+        toast('Task deleted', { undo: () => commit({ ...s(), todos: [...s().todos, todo] }) })
       },
 
       reorderTodos(ordered) {
-        const changed = ordered.map((t, i) => ({ ...t, position: i })).filter((t, i) => t.position !== ordered[i].position)
-        run({ ...s(), todos: upsert(s().todos, changed) }, () => be.upsertTodos(changed))
+        commit({ ...s(), todos: upsert(s().todos, ordered.map((t, i) => ({ ...t, position: i }))) })
       },
 
       moveTodos(todos, dueOn) {
         let pos = s()
           .todos.filter((t) => t.due_on === dueOn)
           .reduce((max, t) => Math.max(max, t.position + 1), 0)
-        const moved = todos.map((t) => ({ ...t, due_on: dueOn, position: pos++ }))
-        run({ ...s(), todos: upsert(s().todos, moved) }, () => be.upsertTodos(moved))
+        commit({ ...s(), todos: upsert(s().todos, todos.map((t) => ({ ...t, due_on: dueOn, position: pos++ }))) })
       },
 
       saveSettings(settings) {
-        run({ ...s(), settings }, () => be.saveSettings(settings))
+        commit({ ...s(), settings })
       },
 
-      async importSnapshot(snapshot) {
-        await be.importSnapshot(snapshot)
-        await reload()
+      importSnapshot(snapshot) {
+        commit(mergeSnapshot(s(), snapshot))
       },
     }
-  }, [data, loading, offline, run, toast, reload])
+  }, [data, commit, toast])
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>
 }

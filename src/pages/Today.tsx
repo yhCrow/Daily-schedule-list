@@ -10,11 +10,9 @@ import type { Revision } from '../lib/types'
 const byDueThenRound = (a: Revision, b: Revision) => a.due_on.localeCompare(b.due_on) || a.round - b.round
 
 export function TodayPage() {
-  const { revisions, todos, items, loading, moveTodos, deleteTodo } = useData()
+  const { revisions, todos, items, moveTodos, deleteTodo } = useData()
   const today = useToday()
   const tomorrow = addDaysISO(today, 1)
-
-  if (loading) return <p className="text-slate-400">Loading…</p>
 
   const overdue = revisions.filter((r) => !r.done_at && r.due_on < today).sort(byDueThenRound)
   const dueToday = revisions.filter((r) => r.due_on === today).sort(byDueThenRound)

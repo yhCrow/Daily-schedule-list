@@ -1,8 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { useAuth } from '../hooks/useAuth'
 import { useData } from '../hooks/useData'
-import { isDemo } from '../lib/backend'
+import { useToday } from '../hooks/useToday'
+import { downloadBackup } from '../lib/backup'
+import { diffDaysISO, timestampToISODate } from '../lib/dates'
+import { getLastBackup } from '../lib/storage'
 import { ItemForm } from './ItemForm'
 
 const links = [
@@ -35,8 +37,8 @@ function useTheme() {
 }
 
 export function Layout({ children }: { children: ReactNode }) {
-  const { signOut } = useAuth()
-  const { offline } = useData()
+  const data = useData()
+  const today = useToday()
   const navigate = useNavigate()
   const { dark, toggle } = useTheme()
   const [adding, setAdding] = useState(false)
@@ -97,25 +99,15 @@ export function Layout({ children }: { children: ReactNode }) {
             <button className="icon-btn text-base" onClick={toggle} aria-label="Toggle dark mode">
               {dark ? '☀' : '☾'}
             </button>
-            {!isDemo && (
-              <button className="btn-ghost hidden sm:inline-flex" onClick={signOut}>
-                Sign out
-              </button>
-            )}
           </div>
         </div>
       </header>
 
-      {isDemo && (
-        <p className="bg-amber-100 px-4 py-1.5 text-center text-xs text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
-          Demo mode: data is saved in this browser only. Connect Supabase for the real, login-protected version.
-        </p>
-      )}
-      {offline && (
-        <p className="bg-slate-200 px-4 py-1.5 text-center text-xs dark:bg-slate-800">
-          Offline: showing your last saved data. Changes need a connection.
-        </p>
-      )}
+      <BackupReminder
+        hasData={data.items.length + data.todos.length > 0}
+        today={today}
+        onBackup={() => downloadBackup(data, today)}
+      />
 
       <main className="mx-auto max-w-5xl px-4 py-5">{children}</main>
 
@@ -137,6 +129,38 @@ export function Layout({ children }: { children: ReactNode }) {
       </nav>
 
       {adding && <ItemForm onClose={() => setAdding(false)} />}
+    </div>
+  )
+}
+
+/** Days between backups before the reminder shows. */
+const BACKUP_REMINDER_DAYS = 7
+
+/** Data lives only in this browser, so nudge for a backup file now and then. */
+function BackupReminder({ hasData, today, onBackup }: { hasData: boolean; today: string; onBackup(): void }) {
+  const [last, setLast] = useState(getLastBackup)
+  const [dismissed, setDismissed] = useState(false)
+  const age = last ? diffDaysISO(today, timestampToISODate(last)) : null
+  if (!hasData || dismissed || (age !== null && age < BACKUP_REMINDER_DAYS)) return null
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-amber-100 px-4 py-1.5 text-center text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
+      <span>
+        Your planner is saved only in this browser.{' '}
+        {age === null ? "You haven't made a backup yet." : `Last backup was ${age} days ago.`}
+      </span>
+      <button
+        className="font-semibold underline"
+        onClick={() => {
+          onBackup()
+          setLast(getLastBackup())
+        }}
+      >
+        Download backup
+      </button>
+      <button className="opacity-70 hover:opacity-100" onClick={() => setDismissed(true)} aria-label="Hide for now">
+        ✕
+      </button>
     </div>
   )
 }
