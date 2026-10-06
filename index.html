@@ -17,6 +17,28 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // If the app fails to start (old browser, failed download), show why instead of a blank page.
+      ;(function () {
+        function show(msg) {
+          var root = document.getElementById('root')
+          if (!root || root.childNodes.length) return
+          root.innerHTML =
+            '<div style="max-width:480px;margin:40px auto;padding:16px;font-family:Bahnschrift,Segoe UI,system-ui,sans-serif">' +
+            '<h1 style="font-size:20px;font-weight:700">Study Planner could not start</h1>' +
+            '<p style="margin-top:8px">Try reloading the page. If it still fails, try an up-to-date Chrome, Safari or Edge. Your saved data is not lost.</p>' +
+            '<pre style="white-space:pre-wrap;background:#f1f5f9;color:#0f172a;padding:12px;border-radius:8px;margin-top:8px;font-size:12px"></pre>' +
+            '<button onclick="location.reload()" style="margin-top:12px;padding:8px 12px;border-radius:8px;background:#4f46e5;color:#fff">Reload</button></div>'
+          root.querySelector('pre').textContent = msg + '\n' + navigator.userAgent
+        }
+        window.addEventListener('error', function (e) {
+          show((e.message || 'Failed to load ' + ((e.target && (e.target.src || e.target.href)) || 'a file')))
+        }, true)
+        window.addEventListener('load', function () {
+          setTimeout(function () { show('The app did not start (no error was reported).') }, 4000)
+        })
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

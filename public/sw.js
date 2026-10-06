@@ -1,6 +1,6 @@
 // Offline support: caches the app files so the planner opens without a
 // connection. Your data is in localStorage, so it is always available offline.
-const CACHE = 'study-planner-v1'
+const CACHE = 'study-planner-v2'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './icon.svg'])))
@@ -23,8 +23,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone()
-          caches.open(CACHE).then((c) => c.put('./index.html', copy))
+          if (res.ok) {
+            const copy = res.clone()
+            caches.open(CACHE).then((c) => c.put('./index.html', copy))
+          }
           return res
         })
         .catch(() => caches.match('./index.html')),

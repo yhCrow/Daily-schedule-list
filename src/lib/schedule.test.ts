@@ -167,3 +167,25 @@ describe('stats', () => {
     expect(s.onTimeRate).toBe(0.5)
   })
 })
+
+describe('sanitize', () => {
+  it('drops malformed rows instead of crashing', async () => {
+    const { sanitize } = await import('./storage')
+    const s = sanitize({
+      items: [
+        { id: 'a', title: 'ok', learned_on: '2026-10-05' } as never,
+        { id: 'b' } as never,
+      ],
+      revisions: [
+        { id: 'r1', item_id: 'a', round: 1, due_on: '2026-10-06' } as never,
+        { id: 'r2', item_id: 'b', round: 1, due_on: '2026-10-06' } as never,
+        { id: 'r3', item_id: 'a', round: 2 } as never,
+      ],
+      todos: [{ id: 't' } as never, { id: 't2', title: 'x', due_on: '2026-10-05' } as never],
+    })
+    expect(s.items.map((i) => i.id)).toEqual(['a'])
+    expect(s.revisions.map((r) => r.id)).toEqual(['r1'])
+    expect(s.todos.map((t) => t.id)).toEqual(['t2'])
+    expect(s.revisions[0].done_at).toBeNull()
+  })
+})

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useToast } from '../components/Toast'
 import { formatDay } from '../lib/dates'
+import { newId } from '../lib/id'
 import { buildSchedule, completeRevision, getOffsets, recalcForLearnedDate } from '../lib/schedule'
 import { loadSnapshot, mergeSnapshot, saveSnapshot, STORAGE_KEY } from '../lib/storage'
 import type { ISODate, LearningItem, Revision, Settings, Snapshot, Todo } from '../lib/types'
@@ -74,9 +75,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       ...data,
 
       addItem(input) {
-        const item: LearningItem = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...input }
+        const item: LearningItem = { id: newId(), created_at: new Date().toISOString(), ...input }
         const revisions: Revision[] = buildSchedule(input.learned_on, getOffsets(s().settings.long_term_review)).map(
-          (p) => ({ id: crypto.randomUUID(), item_id: item.id, round: p.round, due_on: p.due_on, done_at: null }),
+          (p) => ({ id: newId(), item_id: item.id, round: p.round, due_on: p.due_on, done_at: null }),
         )
         commit({ ...s(), items: [item, ...s().items], revisions: [...s().revisions, ...revisions] })
         toast(`Scheduled ${revisions.map((r) => `R${r.round} ${formatDay(r.due_on, 'd MMM')}`).join(' · ')}`)
@@ -123,7 +124,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       restartItem(itemId, today) {
         const before = s().revisions.filter((r) => r.item_id === itemId)
         const fresh: Revision[] = buildSchedule(today, getOffsets(s().settings.long_term_review)).map((p) => ({
-          id: crypto.randomUUID(),
+          id: newId(),
           item_id: itemId,
           round: p.round,
           due_on: p.due_on,
@@ -142,7 +143,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       addTodo(title, dueOn) {
         const sameDay = s().todos.filter((t) => t.due_on === dueOn)
         const todo: Todo = {
-          id: crypto.randomUUID(),
+          id: newId(),
           title,
           due_on: dueOn,
           done_at: null,
