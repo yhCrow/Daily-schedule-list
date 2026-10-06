@@ -1,7 +1,8 @@
 import { OPEN_ITEM_FORM, TODAY_TODO_INPUT } from '../components/Layout'
 import { RevisionRow } from '../components/RevisionRow'
 import { TodoList } from '../components/TodoList'
-import { useData } from '../hooks/useData'
+import { RevisionChips } from '../components/RevisionChips'
+import { useData, useItemMap } from '../hooks/useData'
 import { useToday } from '../hooks/useToday'
 import { addDaysISO, formatDay } from '../lib/dates'
 import { BUSY_DAY_THRESHOLD, computeStreak } from '../lib/stats'
@@ -11,6 +12,7 @@ const byDueThenRound = (a: Revision, b: Revision) => a.due_on.localeCompare(b.du
 
 export function TodayPage() {
   const { revisions, todos, items, moveTodos, deleteTodo } = useData()
+  const itemMap = useItemMap()
   const today = useToday()
   const tomorrow = addDaysISO(today, 1)
 
@@ -23,6 +25,12 @@ export function TodayPage() {
   const learnedToday = items.filter((i) => i.learned_on === today)
   const openToday = dueToday.filter((r) => !r.done_at).length + todayTodos.filter((t) => !t.done_at).length
   const streak = computeStreak(items, revisions, today)
+  const upcomingEnd = addDaysISO(today, 10)
+  const upcomingMap = new Map<string, Revision[]>()
+  for (const r of revisions.filter((r) => !r.done_at && r.due_on > tomorrow && r.due_on <= upcomingEnd).sort(byDueThenRound)) {
+    upcomingMap.set(r.due_on, [...(upcomingMap.get(r.due_on) ?? []), r])
+  }
+  const upcoming = [...upcomingMap.entries()]
 
   return (
     <div className="grid gap-4 md:grid-cols-3">
@@ -109,12 +117,14 @@ export function TodayPage() {
           {learnedToday.length === 0 ? (
             <p className="py-2 text-sm text-slate-400">Nothing logged yet today.</p>
           ) : (
-            <ul className="space-y-1">
+            <ul className="space-y-3">
               {learnedToday.map((i) => (
-                <li key={i.id} className="flex items-center gap-2 text-sm">
-                  <span className="font-medium">{i.title}</span>
-                  {i.subject && <span className="chip">{i.subject}</span>}
-                  <span className="ml-auto text-xs text-slate-500">first revision {formatDay(addDaysISO(today, 1))}</span>
+                <li key={i.id} className="text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{i.title}</span>
+                    {i.subject && <span className="chip">{i.subject}</span>}
+                  </div>
+                  <RevisionChips itemId={i.id} />
                 </li>
               ))}
             </ul>
@@ -146,6 +156,34 @@ export function TodayPage() {
               </ul>
             )}
           </div>
+        </section>
+
+        <section className="card">
+          <h2 className="card-title">📆 Coming up (next 10 days)</h2>
+          {upcoming.length === 0 ? (
+            <p className="text-sm text-slate-400">No revisions scheduled after tomorrow.</p>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {upcoming.map(([day, revs]) => (
+                <li key={day}>
+                  <p className="flex items-center text-xs font-semibold text-slate-500">
+                    {formatDay(day)}
+                    <span className={`chip ml-auto ${revs.length >= BUSY_DAY_THRESHOLD ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' : ''}`}>
+                      {revs.length}
+                    </span>
+                  </p>
+                  <ul>
+                    {revs.map((r) => (
+                      <li key={r.id} className="flex items-center gap-2 py-0.5">
+                        <span className="truncate">{itemMap.get(r.item_id)?.title}</span>
+                        <span className="chip shrink-0 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">R{r.round}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </aside>
     </div>

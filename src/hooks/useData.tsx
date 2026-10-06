@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useToast } from '../components/Toast'
+import { formatDay } from '../lib/dates'
 import { buildSchedule, completeRevision, getOffsets, recalcForLearnedDate } from '../lib/schedule'
 import { loadSnapshot, mergeSnapshot, saveSnapshot, STORAGE_KEY } from '../lib/storage'
 import type { ISODate, LearningItem, Revision, Settings, Snapshot, Todo } from '../lib/types'
@@ -78,6 +79,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
           (p) => ({ id: crypto.randomUUID(), item_id: item.id, round: p.round, due_on: p.due_on, done_at: null }),
         )
         commit({ ...s(), items: [item, ...s().items], revisions: [...s().revisions, ...revisions] })
+        toast(`Scheduled ${revisions.map((r) => `R${r.round} ${formatDay(r.due_on, 'd MMM')}`).join(' · ')}`)
       },
 
       updateItem(item) {

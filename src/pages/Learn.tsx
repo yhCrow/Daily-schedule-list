@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ItemForm } from '../components/ItemForm'
 import { Notes } from '../components/Notes'
+import { RevisionChips } from '../components/RevisionChips'
 import { useData } from '../hooks/useData'
 import { useToday } from '../hooks/useToday'
 import { formatDay, timestampToISODate } from '../lib/dates'
@@ -99,16 +100,10 @@ function ItemCard({ item, revisions }: { item: LearningItem; revisions: Revision
             {item.subject && <span className="chip">{item.subject}</span>}
           </div>
           <p className="mt-0.5 text-xs text-slate-500">
-            Learned {formatDay(item.learned_on)} ·{' '}
-            {next ? (
-              <>
-                next: R{next.round} on{' '}
-                <span className={next.due_on < today ? 'font-semibold text-red-600' : ''}>{formatDay(next.due_on)}</span>
-              </>
-            ) : (
-              'all revisions done ✓'
-            )}
+            Learned {formatDay(item.learned_on)}
+            {!next && ' · all revisions done ✓'} · <span className="text-indigo-600 dark:text-indigo-400">{open ? 'hide ▴' : 'tick off / edit ▾'}</span>
           </p>
+          <RevisionChips itemId={item.id} />
         </button>
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium tabular-nums">
