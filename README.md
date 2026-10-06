@@ -38,6 +38,10 @@ Your planner lives in **one browser on one device**.
 After a minute the site is live at https://yhcrow.github.io/Daily-schedule-list/. Every later
 push redeploys it automatically.
 
+If the page says **"Failed to load …/src/main.tsx"**, Pages is set to *Deploy from a branch*,
+which publishes the raw source code. Switch **Source** back to **GitHub Actions** and re-run the
+workflow.
+
 On your phone, open the link and use **Add to Home Screen** to install it like an app.
 
 ## Run it on your computer
